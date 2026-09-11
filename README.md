@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 模型价格对比
 
-## Getting Started
+一个用于横向对比各大模型供应商 API 价格、性能与规格的 Web 应用：支持供应商 / 模型两级筛选、数值列排序、价格极值高亮，以及人民币 / 美元汇率折算展示。
 
-First, run the development server:
+- 价格与规格数据来自 [LLMRates.ai](https://www.llmrates.ai) 开放数据集（CC BY 4.0）
+- 性能指标（输出速度、首 Token 延迟）来自 [Artificial Analysis](https://artificialanalysis.ai/)（可选配置 API Key）
+- 汇率参考 ECB（Frankfurter），折算结果仅供参考
+
+## 快速开始
+
+### 环境要求
+
+- Node.js 20+
+- pnpm（推荐，也可使用 npm / yarn / bun）
+
+### 安装与启动
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开 [http://localhost:3000](http://localhost:3000) 即可使用。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+常用脚本：
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 命令         | 说明                   |
+| ------------ | ---------------------- |
+| `pnpm dev`   | 启动开发服务器         |
+| `pnpm build` | 生产构建（含类型检查） |
+| `pnpm start` | 启动生产服务器         |
+| `pnpm lint`  | 运行 ESLint 检查       |
 
-## Learn More
+### 环境变量（可选）
 
-To learn more about Next.js, take a look at the following resources:
+在项目根目录的 `.env.local`（或 `.env`）中配置：
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+ARTIFICIAL_ANALYSIS_API_KEY=aa_你的key
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| 变量                          | 必填 | 说明                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARTIFICIAL_ANALYSIS_API_KEY` | 否   | [Artificial Analysis](https://artificialanalysis.ai/data-api) 免费 API Key（注册 Insights Platform 后生成）。配置后展示「输出速度」「首 Token 延迟」两列；未配置时两列显示 —，其余功能不受影响。免费层限 1,000 请求/日，本项目仅在服务端调用并做 12 小时缓存，实际用量远低于限额。 |
 
-## Deploy on Vercel
+配置注意事项：
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Key 仅服务端使用（AA 条款要求），不会出现在浏览器请求中
+- 修改环境变量后需**重启 dev server** 才会生效
+- Next.js 环境变量文件优先级为 `.env.local` > `.env`，且**空值同样会覆盖**低优先级文件——同名变量务必只保留一处定义
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 项目结构
+
+```
+model_price_table_deepseek_2/
+├── app/
+│   ├── api/
+│   │   ├── pricing/route.ts        # 价格数据代理（LLMRates.ai + GitHub 兜底）
+│   │   ├── performance/route.ts    # 性能数据代理（Artificial Analysis）
+│   │   └── fx/route.ts             # 汇率数据代理（ECB）
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── components/
+│   ├── PriceCompareApp.tsx         # 主容器：取数、状态、筛选与持久化
+│   ├── CompareTable.tsx            # 对比表格：排序、极值标签、币种渲染
+│   ├── ColumnSettings.tsx          # 列显示设置
+│   ├── ModelPicker.tsx             # 模型多选（二级筛选）
+│   ├── ProviderFilter.tsx          # 供应商多选（一级筛选）
+│   └── MultiSelect.tsx             # 通用多选下拉（搜索 + 虚拟滚动）
+├── lib/
+│   ├── server/
+│   │   ├── pricing-source.ts       # 价格数据源：主源 + 兜底 + 内存缓存
+│   │   ├── performance-source.ts   # 性能数据源：AA API + 匹配 + 内存缓存
+│   │   ├── fx-source.ts            # 汇率数据源：ECB + 兜底 + 内存缓存
+│   │   └── aa-matching.ts          # llmrates ↔ AA 多级模型匹配
+│   ├── api.ts                      # 客户端取数与 IndexedDB 缓存
+│   ├── cache.ts                    # IndexedDB 缓存封装
+│   ├── metrics.ts                  # 列定义、格式化、币种换算
+│   ├── store.ts                    # localStorage 偏好持久化
+│   └── types.ts                    # 数据源类型定义
+└── ...
+```
