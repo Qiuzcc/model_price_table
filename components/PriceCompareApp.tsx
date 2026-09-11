@@ -58,7 +58,7 @@ function describeSource(meta: DataMeta): string {
       return "GitHub 兜底数据源";
     case "llmrates":
     default:
-      return meta.serverCacheHit ? "服务端缓存（30 分钟内有效）" : "llmrates.ai 数据源";
+      return meta.serverCacheHit ? "服务端缓存（6 小时内有效）" : "llmrates.ai 数据源";
   }
 }
 

@@ -49,6 +49,10 @@ ARTIFICIAL_ANALYSIS_API_KEY=aa_你的key
 - 修改环境变量后需**重启 dev server** 才会生效
 - Next.js 环境变量文件优先级为 `.env.local` > `.env`，且**空值同样会覆盖**低优先级文件——同名变量务必只保留一处定义
 
+## 缓存策略
+
+价格数据集（约 3.2MB）在服务端做磁盘缓存（6 小时 TTL，`.cache/pricing-dataset.json`，已加入 .gitignore），文件在进程内保留镜像、每个进程仅实际读取一次。未过期直接返回缓存，过期后向上游刷新；上游全部失败时降级返回过期数据。页面「刷新数据」按钮（`?force=1`）可强制绕过缓存重新拉取。
+
 ## 项目结构
 
 ```
@@ -70,7 +74,7 @@ model_price_table_deepseek_2/
 │   └── MultiSelect.tsx             # 通用多选下拉（搜索 + 虚拟滚动）
 ├── lib/
 │   ├── server/
-│   │   ├── pricing-source.ts       # 价格数据源：主源 + 兜底 + 内存缓存
+│   │   ├── pricing-source.ts       # 价格数据源：主源 + 兜底 + 磁盘缓存
 │   │   ├── performance-source.ts   # 性能数据源：AA API + 匹配 + 内存缓存
 │   │   ├── fx-source.ts            # 汇率数据源：ECB + 兜底 + 内存缓存
 │   │   └── aa-matching.ts          # llmrates ↔ AA 多级模型匹配

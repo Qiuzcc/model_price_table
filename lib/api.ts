@@ -18,7 +18,7 @@ export interface PricingResult {
   fromCache: boolean;
   /** 上游刷新失败，展示的是过期缓存 */
   stale: boolean;
-  /** 服务端是否命中其内存缓存 */
+  /** 是否命中服务端磁盘缓存（6 小时） */
   serverCacheHit: boolean;
   error?: string;
 }
