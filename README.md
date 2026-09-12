@@ -1,8 +1,13 @@
 # 模型价格对比
 
+预览地址：
+
+- https://edge.timegogo.top/
+- https://model-price-table.vercel.app/
+
 ![alt text](image.png)
 
-一个用于横向对比各大模型供应商 API 价格、性能与规格的 Web 应用。
+**一个用于横向对比大模型 API 价格的 Web 应用。**
 
 支持供应商 / 模型两级筛选、数值列排序、价格极值高亮，以及人民币 / 美元汇率折算展示。
 
@@ -16,7 +21,7 @@
 
 如果按照传统方法，我需要去挨个查看模型官网披露的官方报价，这种方式不仅操作链路繁杂，而且无法直观地形成对比。
 
-于是我就去网上寻找现成的解决方案，找到了如：[Atrificial Analysis](https://artificialanalysis.ai/)、[TrakToken](https://www.traktoken.com/)、[LLMRates](https://www.llmrates.ai/zh-Hans) 这些优质的网站。虽然这些网站提供的服务全面而且优质，但他们并没能解决我的一个高度垂直的需求——快速且直观的横向对比多个（>5 个）模型的价格（及一些其它简单的性能参数）。
+于是我就去网上寻找现成的解决方案，找到了如：[Atrificial Analysis](https://artificialanalysis.ai/)、[TrakToken](https://www.traktoken.com/)、[LLMRates](https://www.llmrates.ai/zh-Hans) 这些优质的网站。虽然这些网站提供的服务全面而且优质，但他们并没能解决我的一个高度垂直的需求——**快速且直观的横向对比多个（>5 个）模型的价格（及一些其它简单的性能参数）**。
 
 于是我最终决定根据自己的垂直需求，手搓定制一个。
 
