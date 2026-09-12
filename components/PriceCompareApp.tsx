@@ -50,10 +50,6 @@ interface DataMeta {
 
 function describeSource(meta: DataMeta): string {
   switch (meta.source) {
-    case "cache":
-      return "本地缓存（30 分钟内有效）";
-    case "stale-cache":
-      return "本地过期缓存（刷新失败）";
     case "github":
       return "GitHub 兜底数据源";
     case "llmrates":
@@ -89,7 +85,7 @@ export default function PriceCompareApp() {
       stale: result.stale,
       serverCacheHit: result.serverCacheHit,
     });
-    setNotice(result.stale && result.error ? `数据刷新失败（${result.error}），当前展示缓存数据` : null);
+    setNotice(null);
   };
 
   // 首次加载：本地缓存（30 分钟）优先，过期则请求服务端

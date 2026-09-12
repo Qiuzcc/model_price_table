@@ -98,6 +98,7 @@ export interface PerformanceMetrics {
 
 export type PerformanceSource =
   | "artificial_analysis"
+  | "disk-cache"
   | "memory-cache"
   | "disabled"
   | "unavailable";

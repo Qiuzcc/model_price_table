@@ -46,9 +46,13 @@ type CachedSnapshot = {
   source: string;
 };
 
-/** 磁盘缓存的进程内镜像：文件仅在首次需要时读取一次，之后随写入同步更新 */
+/**
+ * 磁盘缓存的进程内镜像：文件仅在首次需要时读取一次，之后随写入同步更新。
+ * 读取以单飞 Promise 承载：并发请求共享同一次读取，避免先到请求读取尚未完成时，
+ * 后到请求把「镜像尚未就绪」误判为「无缓存」而直连上游。
+ */
 let diskCache: CachedSnapshot | null = null;
-let diskCacheLoaded = false;
+let diskCacheLoad: Promise<CachedSnapshot | null> | null = null;
 let inflight: Promise<PricingSnapshot> | null = null;
 
 function isPricingCatalog(value: unknown): value is PricingCatalog {
@@ -80,36 +84,42 @@ async function fetchFromUpstream(): Promise<CachedSnapshot> {
 }
 
 /** 读取磁盘缓存（文件仅首次读取，之后走进程内镜像；不存在 / 损坏 / 版本不符视为无缓存） */
-async function loadDiskCache(): Promise<CachedSnapshot | null> {
-  if (diskCacheLoaded) return diskCache;
-  diskCacheLoaded = true;
-  try {
-    const raw = await readFile(DISK_CACHE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<CachedSnapshot> | null;
-    if (
-      parsed &&
-      parsed.version === CACHE_SCHEMA_VERSION &&
-      isPricingCatalog(parsed.catalog) &&
-      typeof parsed.fetchedAt === "number" &&
-      typeof parsed.source === "string"
-    ) {
-      diskCache = {
-        version: parsed.version,
-        catalog: parsed.catalog,
-        fetchedAt: parsed.fetchedAt,
-        source: parsed.source,
-      };
-    }
-  } catch {
-    // 忽略：文件不存在或损坏时视为无磁盘缓存
+function loadDiskCache(): Promise<CachedSnapshot | null> {
+  // 镜像已就绪（含上游刷新后的新写入）：直接命中
+  if (diskCache) return Promise.resolve(diskCache);
+
+  if (!diskCacheLoad) {
+    diskCacheLoad = (async () => {
+      try {
+        const raw = await readFile(DISK_CACHE_PATH, "utf8");
+        const parsed = JSON.parse(raw) as Partial<CachedSnapshot> | null;
+        if (
+          parsed &&
+          parsed.version === CACHE_SCHEMA_VERSION &&
+          isPricingCatalog(parsed.catalog) &&
+          typeof parsed.fetchedAt === "number" &&
+          typeof parsed.source === "string" &&
+          diskCache === null // 读取期间若已写入更新的镜像，以新镜像为准
+        ) {
+          diskCache = {
+            version: parsed.version,
+            catalog: parsed.catalog,
+            fetchedAt: parsed.fetchedAt,
+            source: parsed.source,
+          };
+        }
+      } catch {
+        // 忽略：文件不存在或损坏时视为无磁盘缓存
+      }
+      return diskCache;
+    })();
   }
-  return diskCache;
+  return diskCacheLoad;
 }
 
 /** 原子写入磁盘缓存（先写临时文件再 rename，避免读到半截内容）；失败静默降级 */
 async function persistToDisk(snapshot: CachedSnapshot): Promise<void> {
   diskCache = snapshot;
-  diskCacheLoaded = true;
   try {
     await mkdir(path.dirname(DISK_CACHE_PATH), { recursive: true });
     const tmpPath = `${DISK_CACHE_PATH}.tmp`;
