@@ -1,44 +1,36 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PricingDataset } from "@/lib/types";
+import type { PricingCatalog } from "@/lib/domain/types";
+import { PRICING_SOURCES } from "./sources/registry";
 
 /**
- * 服务端数据源：主源为 llmrates.ai 公开数据集接口，兜底为同结构的 GitHub 开放数据集。
+ * 价格数据编排层：多源回退 + 磁盘缓存。
  *
- * 注意：数据集约 3.2MB，超过 Next.js FetchCache 单条 2MB 上限，
- * 因此使用磁盘缓存（6 小时 TTL，写入 .cache/pricing-dataset.json），全站共享，
- * 避免每次请求都打上游；文件在进程内保留镜像，每个进程仅实际读取一次。
- * 未过期直接使用，过期或强制刷新时才请求上游；上游失败时降级返回过期缓存（stale）。
+ * - 数据源适配器在 `lib/server/sources/` 中注册（按优先级排列），本层逐个尝试，
+ *   任一成功即采用对应适配器映射出的领域模型；
+ * - 数据集体积较大（数 MB），超过 Next.js FetchCache 单条 2MB 上限，
+ *   因此使用磁盘缓存（6 小时 TTL，写入 .cache/pricing-catalog.json），全站共享，
+ *   文件在进程内保留镜像，每个进程仅实际读取一次；
+ * - 未过期直接使用，过期或强制刷新时才请求上游；上游全部失败时降级返回过期缓存（stale）。
  */
-
-const SOURCES = [
-  {
-    url: "https://www.llmrates.ai/api/dataset",
-    source: "llmrates",
-    // 主源为动态生成端点，TTFB 波动大（实测 7~10s+），收紧超时尽快切换兜底源
-    timeoutMs: 10_000,
-  },
-  {
-    url: "https://raw.githubusercontent.com/llmrates/llm-pricing-dataset/main/data/dataset.json",
-    source: "github",
-    timeoutMs: 20_000,
-  },
-] as const;
 
 /** 磁盘缓存 TTL：6 小时 */
 export const DISK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
+/** 磁盘缓存结构版本：领域模型结构变更时递增即可让旧缓存自动失效 */
+const CACHE_SCHEMA_VERSION = 1;
+
 const DISK_CACHE_PATH = path.join(
   process.cwd(),
   ".cache",
-  "pricing-dataset.json",
+  "pricing-catalog.json",
 );
 
 export interface PricingSnapshot {
-  dataset: PricingDataset;
+  catalog: PricingCatalog;
   /** 上游数据的抓取时间（毫秒时间戳） */
   fetchedAt: number;
-  /** llmrates | github */
+  /** 命中数据源的适配器 id，如 llmrates / github */
   source: string;
   /** 是否命中服务端磁盘缓存（含进程内镜像） */
   fromDiskCache: boolean;
@@ -46,49 +38,47 @@ export interface PricingSnapshot {
   stale: boolean;
 }
 
-type CachedSnapshot = Omit<PricingSnapshot, "fromDiskCache" | "stale">;
+type CachedSnapshot = {
+  version: number;
+  catalog: PricingCatalog;
+  fetchedAt: number;
+  source: string;
+};
 
 /** 磁盘缓存的进程内镜像：文件仅在首次需要时读取一次，之后随写入同步更新 */
 let diskCache: CachedSnapshot | null = null;
 let diskCacheLoaded = false;
 let inflight: Promise<PricingSnapshot> | null = null;
 
-function isPricingDataset(value: unknown): value is PricingDataset {
+function isPricingCatalog(value: unknown): value is PricingCatalog {
   if (value == null || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return Array.isArray(record.models) && Array.isArray(record.providers);
 }
 
+/** 逐个尝试注册的数据源，任一成功即返回；全部失败时聚合各源原因抛错 */
 async function fetchFromUpstream(): Promise<CachedSnapshot> {
   const errors: string[] = [];
 
-  for (const { url, source, timeoutMs } of SOURCES) {
+  for (const source of PRICING_SOURCES) {
     try {
-      const response = await fetch(url, {
-        cache: "no-store",
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!response.ok) {
-        errors.push(`${source}: HTTP ${response.status}`);
-        continue;
-      }
-      const data: unknown = await response.json();
-      if (!isPricingDataset(data)) {
-        errors.push(`${source}: 响应结构异常`);
-        continue;
-      }
-      return { dataset: data, fetchedAt: Date.now(), source };
+      const catalog = await source.fetchCatalog();
+      return {
+        version: CACHE_SCHEMA_VERSION,
+        catalog,
+        fetchedAt: Date.now(),
+        source: source.id,
+      };
     } catch (error) {
       const reason = error instanceof Error ? error.message : "网络错误";
-      errors.push(`${source}: ${reason}`);
+      errors.push(`${source.id}: ${reason}`);
     }
   }
 
   throw new Error(`所有上游数据源均不可用（${errors.join("；")}）`);
 }
 
-/** 读取磁盘缓存（文件仅首次读取，之后走进程内镜像；不存在或损坏视为无缓存） */
+/** 读取磁盘缓存（文件仅首次读取，之后走进程内镜像；不存在 / 损坏 / 版本不符视为无缓存） */
 async function loadDiskCache(): Promise<CachedSnapshot | null> {
   if (diskCacheLoaded) return diskCache;
   diskCacheLoaded = true;
@@ -97,12 +87,14 @@ async function loadDiskCache(): Promise<CachedSnapshot | null> {
     const parsed = JSON.parse(raw) as Partial<CachedSnapshot> | null;
     if (
       parsed &&
-      isPricingDataset(parsed.dataset) &&
+      parsed.version === CACHE_SCHEMA_VERSION &&
+      isPricingCatalog(parsed.catalog) &&
       typeof parsed.fetchedAt === "number" &&
       typeof parsed.source === "string"
     ) {
       diskCache = {
-        dataset: parsed.dataset,
+        version: parsed.version,
+        catalog: parsed.catalog,
         fetchedAt: parsed.fetchedAt,
         source: parsed.source,
       };

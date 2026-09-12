@@ -5,7 +5,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/pricing
- * 服务端代理 LLMRates.ai 数据集（磁盘缓存 6 小时 + GitHub 兜底源），规避上游无 CORS 的限制。
+ * 服务端代理价格数据（多源回退 + 磁盘缓存 6 小时），返回领域模型 PricingCatalog，
+ * 数据源适配细节收敛在 lib/server/sources/。规避上游无 CORS 的限制。
  * ?force=1 强制绕过服务端缓存重新拉取（手动刷新用）。
  */
 export async function GET(request: Request) {
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
 
   try {
     const snapshot = await getPricingSnapshot(force);
-    return NextResponse.json(snapshot.dataset, {
+    return NextResponse.json(snapshot.catalog, {
       headers: {
         "X-Data-Source": snapshot.source,
         "X-Fetched-At": new Date(snapshot.fetchedAt).toISOString(),

@@ -1,4 +1,4 @@
-import type { FxRates } from "@/lib/types";
+import type { FxRates } from "@/lib/domain/types";
 
 /**
  * 服务端数据源：美元基准汇率（用于价格展示币种换算）。

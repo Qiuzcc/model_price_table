@@ -3,11 +3,11 @@
 import { useMemo } from "react";
 import MultiSelect, { type MultiSelectOption } from "./MultiSelect";
 import { PROVIDER_TYPE_LABELS } from "@/lib/metrics";
-import type { ProviderInfo } from "@/lib/types";
+import type { Provider } from "@/lib/domain/types";
 
 interface ProviderFilterProps {
   /** 全量供应商列表（含 0 模型供应商） */
-  providers: ProviderInfo[];
+  providers: Provider[];
   selected: string[];
   onChange: (slugs: string[]) => void;
 }
@@ -20,7 +20,7 @@ export default function ProviderFilter({ providers, selected, onChange }: Provid
         value: provider.slug,
         label: provider.nameLocal ? `${provider.name}（${provider.nameLocal}）` : provider.name,
         hint: `${provider.modelCount} 个模型`,
-        keywords: `${provider.slug} ${PROVIDER_TYPE_LABELS[provider.providerType] ?? provider.providerType}`,
+        keywords: `${provider.slug} ${PROVIDER_TYPE_LABELS[provider.type] ?? provider.type}`,
       })),
     [providers],
   );

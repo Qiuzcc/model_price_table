@@ -1,4 +1,4 @@
-import type { ModelInfo } from "@/lib/types";
+import type { Model } from "@/lib/domain/types";
 
 /**
  * llmrates 模型 ↔ Artificial Analysis 模型匹配。
@@ -122,7 +122,7 @@ export function buildAaIndex(models: AaModel[]): AaIndex {
   return index;
 }
 
-function resolveCreatorKey(model: ModelInfo): string {
+function resolveCreatorKey(model: Model): string {
   const fromName = normalizeToken(model.provider.name);
   const fromSlug = normalizeToken(model.provider.slug);
   const aliased = AA_CREATOR_ALIASES[fromName] ?? AA_CREATOR_ALIASES[fromSlug];
@@ -130,10 +130,7 @@ function resolveCreatorKey(model: ModelInfo): string {
   return fromName || fromSlug;
 }
 
-export function matchModelToAa(
-  model: ModelInfo,
-  index: AaIndex,
-): AaMatch | null {
+export function matchModelToAa(model: Model, index: AaIndex): AaMatch | null {
   // 1. 别名表
   const aliasSlug = AA_ALIASES[`${model.provider.slug}/${model.slug}`];
   if (aliasSlug) {

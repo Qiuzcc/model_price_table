@@ -34,10 +34,10 @@ import {
 import type {
   DisplayCurrency,
   FxRates,
-  ModelInfo,
+  Model,
   PerformancePayload,
-  PricingDataset,
-} from "@/lib/types";
+  PricingCatalog,
+} from "@/lib/domain/types";
 
 type Status = "loading" | "ready" | "error";
 
@@ -57,14 +57,15 @@ function describeSource(meta: DataMeta): string {
     case "github":
       return "GitHub 兜底数据源";
     case "llmrates":
-    default:
       return meta.serverCacheHit ? "服务端缓存（6 小时内有效）" : "llmrates.ai 数据源";
+    default:
+      return meta.serverCacheHit ? "服务端缓存（6 小时内有效）" : meta.source;
   }
 }
 
 export default function PriceCompareApp() {
   const [status, setStatus] = useState<Status>("loading");
-  const [dataset, setDataset] = useState<PricingDataset | null>(null);
+  const [catalog, setCatalog] = useState<PricingCatalog | null>(null);
   const [performance, setPerformance] = useState<PerformancePayload | null>(null);
   const [fx, setFx] = useState<FxRates | null>(null);
   const [meta, setMeta] = useState<DataMeta | null>(null);
@@ -81,7 +82,7 @@ export default function PriceCompareApp() {
 
   // 应用一次取数结果：更新数据集 / 元信息 / 过期提示
   const applyResult = (result: PricingResult) => {
-    setDataset(result.dataset);
+    setCatalog(result.catalog);
     setMeta({
       fetchedAt: result.fetchedAt,
       source: result.source,
@@ -107,7 +108,7 @@ export default function PriceCompareApp() {
         setFx(fxData);
 
         // 恢复本地已选模型（剔除数据集中已不存在的 sid）
-        const sids = new Set(result.dataset.models.map((model) => model.sid));
+        const sids = new Set(result.catalog.models.map((model) => model.sid));
         const storedSids = loadSelectedSids();
         if (storedSids) {
           setModelSel(storedSids.filter((sid) => sids.has(sid)));
@@ -167,7 +168,7 @@ export default function PriceCompareApp() {
       applyResult(result);
       setPerformance(perf);
       setFx(fxData);
-      const sids = new Set(result.dataset.models.map((model) => model.sid));
+      const sids = new Set(result.catalog.models.map((model) => model.sid));
       setModelSel((prev) => prev.filter((sid) => sids.has(sid)));
       if (!result.stale) {
         const perfUsable = perf != null && Object.keys(perf.metrics).length > 0;
@@ -181,30 +182,30 @@ export default function PriceCompareApp() {
   };
 
   const providers = useMemo(() => {
-    if (!dataset) return [];
-    return [...dataset.providers].sort((a, b) => a.name.localeCompare(b.name, "zh"));
-  }, [dataset]);
+    if (!catalog) return [];
+    return [...catalog.providers].sort((a, b) => a.name.localeCompare(b.name, "zh"));
+  }, [catalog]);
 
   const modelBySid = useMemo(() => {
-    const map = new Map<string, ModelInfo>();
-    dataset?.models.forEach((model) => map.set(model.sid, model));
+    const map = new Map<string, Model>();
+    catalog?.models.forEach((model) => map.set(model.sid, model));
     return map;
-  }, [dataset]);
+  }, [catalog]);
 
   /** 二级过滤：按已选供应商筛选候选模型；未选供应商时展示全量模型 */
   const candidates = useMemo(() => {
-    if (!dataset) return [];
-    if (providerSel.length === 0) return dataset.models;
+    if (!catalog) return [];
+    if (providerSel.length === 0) return catalog.models;
     const providerSet = new Set(providerSel);
-    return dataset.models.filter((model) => providerSet.has(model.provider.slug));
-  }, [dataset, providerSel]);
+    return catalog.models.filter((model) => providerSet.has(model.provider.slug));
+  }, [catalog, providerSel]);
 
   /** 对比表格行：按勾选顺序排列，合并 Artificial Analysis 性能指标 */
   const rows: ModelRow[] = useMemo(
     () =>
       modelSel
         .map((sid) => modelBySid.get(sid))
-        .filter((model): model is ModelInfo => model !== undefined)
+        .filter((model): model is Model => model !== undefined)
         .map((model) => toModelRow(model, performance?.metrics[model.sid] ?? null)),
     [modelSel, modelBySid, performance],
   );
@@ -347,7 +348,7 @@ export default function PriceCompareApp() {
               </span>
               <span className="text-slate-200">|</span>
               <span>
-                数据集共 {dataset?.models.length ?? 0} 个模型、{dataset?.providers.length ?? 0} 个供应商
+                数据集共 {catalog?.models.length ?? 0} 个模型、{catalog?.providers.length ?? 0} 个供应商
               </span>
             </div>
             {capWarning ? <p className="mt-2 text-xs font-medium text-amber-600">{capWarning}</p> : null}

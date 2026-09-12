@@ -3,11 +3,11 @@
 import { useMemo } from "react";
 import MultiSelect, { type MultiSelectOption } from "./MultiSelect";
 import { PROVIDER_TYPE_LABELS } from "@/lib/metrics";
-import type { ModelInfo } from "@/lib/types";
+import type { Model } from "@/lib/domain/types";
 
 interface ModelPickerProps {
   /** 二级过滤后的候选模型（未选供应商时为全量模型） */
-  candidates: ModelInfo[];
+  candidates: Model[];
   /** 已选中的模型 sid 列表（即进入对比列表的模型） */
   selected: string[];
   onChange: (sids: string[]) => void;
@@ -24,7 +24,7 @@ export default function ModelPicker({ candidates, selected, onChange }: ModelPic
       value: model.sid,
       label: model.name,
       hint: model.provider.name,
-      keywords: [model.slug, model.family, PROVIDER_TYPE_LABELS[model.provider.providerType]]
+      keywords: [model.slug, model.family, PROVIDER_TYPE_LABELS[model.provider.type]]
         .filter(Boolean)
         .join(" "),
     }));

@@ -53,7 +53,7 @@ ARTIFICIAL_ANALYSIS_API_KEY=aa_你的key
 
 ## 缓存策略
 
-价格数据集（约 3.2MB）在服务端做磁盘缓存（6 小时 TTL，`.cache/pricing-dataset.json`，已加入 .gitignore），文件在进程内保留镜像、每个进程仅实际读取一次。未过期直接返回缓存，过期后向上游刷新；上游全部失败时降级返回过期数据。页面「刷新数据」按钮（`?force=1`）可强制绕过缓存重新拉取。
+价格数据在服务端经由数据源适配器转换为与数据源无关的领域模型（`lib/domain/types.ts`），再做磁盘缓存（6 小时 TTL，`.cache/pricing-catalog.json`，已加入 .gitignore），文件在进程内保留镜像、每个进程仅实际读取一次。未过期直接返回缓存，过期后向上游刷新；上游全部失败时降级返回过期数据。页面「刷新数据」按钮（`?force=1`）可强制绕过缓存重新拉取。
 
 ## 项目结构
 
@@ -75,15 +75,20 @@ model_price_table_deepseek_2/
 │   ├── ProviderFilter.tsx          # 供应商多选（一级筛选）
 │   └── MultiSelect.tsx             # 通用多选下拉（搜索 + 虚拟滚动）
 ├── lib/
+│   ├── domain/
+│   │   └── types.ts                # 领域模型：与数据源无关的抽象数据结构
 │   ├── server/
-│   │   ├── pricing-source.ts       # 价格数据源：主源 + 兜底 + 磁盘缓存
+│   │   ├── sources/
+│   │   │   ├── types.ts            # 数据源适配器契约
+│   │   │   ├── llmrates.ts         # LLMRates.ai 适配器（API 主源 + GitHub 镜像）
+│   │   │   └── registry.ts         # 数据源注册表（按优先级）
+│   │   ├── pricing-source.ts       # 价格数据编排：多源回退 + 磁盘缓存
 │   │   ├── performance-source.ts   # 性能数据源：AA API + 匹配 + 内存缓存
 │   │   ├── fx-source.ts            # 汇率数据源：ECB + 兜底 + 内存缓存
-│   │   └── aa-matching.ts          # llmrates ↔ AA 多级模型匹配
+│   │   └── aa-matching.ts          # 领域模型 ↔ AA 多级模型匹配
 │   ├── api.ts                      # 客户端取数与 IndexedDB 缓存
 │   ├── cache.ts                    # IndexedDB 缓存封装
 │   ├── metrics.ts                  # 列定义、格式化、币种换算
-│   ├── store.ts                    # localStorage 偏好持久化
-│   └── types.ts                    # 数据源类型定义
+│   └── store.ts                    # localStorage 偏好持久化
 └── ...
 ```

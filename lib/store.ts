@@ -6,7 +6,7 @@
  * 仅存轻量小数据，大体积数据集走 IndexedDB（lib/cache.ts）。
  */
 
-import type { DisplayCurrency } from "./types";
+import type { DisplayCurrency } from "./domain/types";
 
 const SELECTED_SIDS_KEY = "mpt:selected-sids";
 const VISIBLE_COLUMNS_KEY = "mpt:visible-columns";

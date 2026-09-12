@@ -1,8 +1,8 @@
 import type {
   PerformanceMetrics,
   PerformancePayload,
-  PricingDataset,
-} from "@/lib/types";
+  PricingCatalog,
+} from "@/lib/domain/types";
 import { buildAaIndex, matchModelToAa, type AaModel } from "./aa-matching";
 import { getPricingSnapshot } from "./pricing-source";
 
@@ -107,14 +107,14 @@ async function fetchAaModels(apiKey: string): Promise<AaModel[]> {
 }
 
 function buildPayload(
-  dataset: PricingDataset,
+  catalog: PricingCatalog,
   aaModels: AaModel[],
 ): PerformancePayload {
   const index = buildAaIndex(aaModels);
   const metrics: Record<string, PerformanceMetrics> = {};
   const unmatched: string[] = [];
 
-  for (const model of dataset.models) {
+  for (const model of catalog.models) {
     const match = matchModelToAa(model, index);
     if (!match) {
       unmatched.push(`${model.provider.slug}/${model.slug}`);
@@ -123,13 +123,13 @@ function buildPayload(
     metrics[model.sid] = {
       outputTokensPerSecond: match.model.outputTokensPerSecond,
       timeToFirstTokenSeconds: match.model.timeToFirstTokenSeconds,
-      aaModelSlug: match.model.slug,
+      sourceModelSlug: match.model.slug,
     };
   }
 
   const matchedCount = Object.keys(metrics).length;
   console.info(
-    `[performance] AA 模型 ${aaModels.length} 个，匹配 ${matchedCount}/${dataset.models.length}` +
+    `[performance] AA 模型 ${aaModels.length} 个，匹配 ${matchedCount}/${catalog.models.length}` +
       (unmatched.length > 0
         ? `；未匹配示例：${unmatched.slice(0, 20).join(", ")}`
         : ""),
@@ -139,7 +139,7 @@ function buildPayload(
     generatedAt: Date.now(),
     source: "artificial_analysis",
     matchedCount,
-    totalModels: dataset.models.length,
+    totalModels: catalog.models.length,
     metrics,
   };
 }
@@ -177,7 +177,7 @@ export async function getPerformancePayload(
         getPricingSnapshot(false),
         fetchAaModels(apiKey),
       ]);
-      const payload = buildPayload(snapshot.dataset, aaModels);
+      const payload = buildPayload(snapshot.catalog, aaModels);
       memoryCache = { payload, fetchedAt: Date.now() };
       return payload;
     } catch (error) {

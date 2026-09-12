@@ -1,16 +1,20 @@
 import { readCache, writeCache } from "./cache";
-import type { FxRates, PerformancePayload, PricingDataset } from "./types";
+import type {
+  FxRates,
+  PerformancePayload,
+  PricingCatalog,
+} from "./domain/types";
 
 /** 客户端本地缓存有效期：30 分钟 */
 export const CLIENT_CACHE_TTL_MS = 30 * 60 * 1000;
 
-const CACHE_KEY = "dataset-v1";
+const CACHE_KEY = "catalog-v1";
 
-/** 本次数据的来源：本地缓存 / llmrates 主源 / GitHub 兜底源 / 过期缓存 */
-export type DataSource = "llmrates" | "github" | "cache" | "stale-cache";
+/** 本次数据的来源：本地缓存标识（cache / stale-cache）或服务端数据源适配器 id（llmrates / github / …） */
+export type DataSource = string;
 
 export interface PricingResult {
-  dataset: PricingDataset;
+  catalog: PricingCatalog;
   /** 上游数据的抓取时间（毫秒时间戳） */
   fetchedAt: number;
   source: DataSource;
@@ -39,15 +43,15 @@ async function requestFromServer(force: boolean): Promise<PricingResult> {
     );
   }
 
-  const dataset = (await response.json()) as PricingDataset;
+  const catalog = (await response.json()) as PricingCatalog;
   const sourceHeader = response.headers.get("X-Data-Source");
   const fetchedAtHeader = response.headers.get("X-Fetched-At");
   const fetchedAt = fetchedAtHeader ? Date.parse(fetchedAtHeader) : Date.now();
 
   return {
-    dataset,
+    catalog,
     fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
-    source: sourceHeader === "github" ? "github" : "llmrates",
+    source: sourceHeader ?? "unknown",
     fromCache: false,
     stale: response.headers.get("X-Stale") === "1",
     serverCacheHit: response.headers.get("X-Cache-Hit") === "1",
@@ -64,12 +68,12 @@ export async function getPricingData(options?: {
   force?: boolean;
 }): Promise<PricingResult> {
   const force = options?.force ?? false;
-  const cached = await readCache<PricingDataset>(CACHE_KEY);
+  const cached = await readCache<PricingCatalog>(CACHE_KEY);
   const now = Date.now();
 
   if (!force && cached && now - cached.fetchedAt < CLIENT_CACHE_TTL_MS) {
     return {
-      dataset: cached.data,
+      catalog: cached.data,
       fetchedAt: cached.fetchedAt,
       source: "cache",
       fromCache: true,
@@ -80,12 +84,12 @@ export async function getPricingData(options?: {
 
   try {
     const result = await requestFromServer(force);
-    await writeCache(CACHE_KEY, result.dataset, result.fetchedAt);
+    await writeCache(CACHE_KEY, result.catalog, result.fetchedAt);
     return result;
   } catch (error) {
     if (cached) {
       return {
-        dataset: cached.data,
+        catalog: cached.data,
         fetchedAt: cached.fetchedAt,
         source: "stale-cache",
         fromCache: true,

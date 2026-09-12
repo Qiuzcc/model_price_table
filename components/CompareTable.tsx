@@ -15,7 +15,7 @@ import {
   type MetricColumn,
   type ModelRow,
 } from "@/lib/metrics";
-import type { DisplayCurrency, FxRates } from "@/lib/types";
+import type { DisplayCurrency, FxRates } from "@/lib/domain/types";
 
 interface CompareTableProps {
   rows: ModelRow[];
@@ -55,7 +55,7 @@ function getDisplayPrice(
 ): { value: number; unit: string | null } | null {
   const raw = column.get(row) as number | null;
   if (raw == null || !Number.isFinite(raw)) return null;
-  const unit = row.headline?.priceUnit ?? null;
+  const unit = row.pricing?.currency ?? null;
   if (options.displayCurrency !== "native" && options.rates && unit) {
     const converted = convertCurrency(raw, unit, options.displayCurrency, options.rates);
     if (converted != null) return { value: converted, unit: options.displayCurrency };
@@ -78,7 +78,7 @@ function getNumericValue(
   }
   const raw = column.get(row) as number | null;
   if (raw == null || !Number.isFinite(raw)) return null;
-  const unit = row.headline?.priceUnit ?? null;
+  const unit = row.pricing?.currency ?? null;
   const target = options.displayCurrency !== "native" ? options.displayCurrency : "USD";
   if (options.rates && unit) {
     const converted = convertCurrency(raw, unit, target, options.rates);

@@ -1,4 +1,4 @@
-import type { ModelInfo, PerformanceMetrics, PriceRow } from "./types";
+import type { Model, ModelPricing, PerformanceMetrics } from "./domain/types";
 
 /** 对比列表允许的最大模型数量 */
 export const MAX_COMPARE_MODELS = 30;
@@ -8,9 +8,9 @@ export const PERFORMANCE_COLUMN_KEYS = ["outputSpeed", "ttft"];
 
 /** 表格行数据：模型 + 提取出的头部价格 + 性能指标 */
 export interface ModelRow {
-  model: ModelInfo;
+  model: Model;
   /** 标准档（standard）头部价格，取不到时为 null */
-  headline: PriceRow | null;
+  pricing: ModelPricing | null;
   /** Artificial Analysis 性能指标（未匹配时为 null） */
   performance: PerformanceMetrics | null;
 }
@@ -19,19 +19,19 @@ export interface ModelRow {
  * 从模型的多行价格中提取「头部价格」：
  * 优先 standard 档且无区域限定的行 → 首个 standard 行 → 首行。
  */
-export function pickHeadlinePrice(model: ModelInfo): PriceRow | null {
-  const rows = model.prices ?? [];
+export function pickHeadlinePricing(model: Model): ModelPricing | null {
+  const rows = model.pricing ?? [];
   if (rows.length === 0) return null;
-  const standard = rows.filter((row) => row.processingTier === "standard");
+  const standard = rows.filter((row) => row.tier === "standard");
   const pool = standard.length > 0 ? standard : rows;
   return pool.find((row) => row.region == null) ?? pool[0];
 }
 
 export function toModelRow(
-  model: ModelInfo,
+  model: Model,
   performance: PerformanceMetrics | null = null,
 ): ModelRow {
-  return { model, headline: pickHeadlinePrice(model), performance };
+  return { model, pricing: pickHeadlinePricing(model), performance };
 }
 
 function formatNumber(value: number): string {
@@ -196,7 +196,7 @@ export const COLUMNS: MetricColumn[] = [
     kind: "price",
     sortable: true,
     highlightExtremes: true,
-    get: (row) => row.headline?.inputPricePerMillion ?? null,
+    get: (row) => row.pricing?.inputPerMillion ?? null,
   },
   {
     key: "outputPrice",
@@ -206,7 +206,7 @@ export const COLUMNS: MetricColumn[] = [
     kind: "price",
     sortable: true,
     highlightExtremes: true,
-    get: (row) => row.headline?.outputPricePerMillion ?? null,
+    get: (row) => row.pricing?.outputPerMillion ?? null,
   },
   {
     key: "cachedInputPrice",
@@ -216,7 +216,7 @@ export const COLUMNS: MetricColumn[] = [
     kind: "price",
     sortable: true,
     highlightExtremes: true,
-    get: (row) => row.headline?.cachedInputPricePerMillion ?? null,
+    get: (row) => row.pricing?.cachedInputPerMillion ?? null,
   },
   {
     key: "outputSpeed",
@@ -321,7 +321,7 @@ export const COLUMNS: MetricColumn[] = [
     hint: "每 1M tokens",
     defaultVisible: false,
     kind: "price",
-    get: (row) => row.headline?.thinkingOutputPricePerMillion ?? null,
+    get: (row) => row.pricing?.thinkingOutputPerMillion ?? null,
   },
   {
     key: "deprecatedAt",
@@ -335,7 +335,7 @@ export const COLUMNS: MetricColumn[] = [
     label: "价格来源",
     defaultVisible: false,
     kind: "link",
-    get: (row) => row.headline?.sourceUrl ?? null,
+    get: (row) => row.pricing?.sourceUrl ?? null,
   },
 ];
 
