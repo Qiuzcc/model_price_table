@@ -1,3 +1,4 @@
+import { readCache, removeCache, writeCache } from "./cache";
 import type {
   FxRates,
   PerformancePayload,
@@ -106,4 +107,66 @@ export async function getFxData(options?: {
   } catch {
     return null;
   }
+}
+
+/* ------------------------------ 客户端首屏缓存 ------------------------------ */
+
+/**
+ * 客户端本地缓存包：价格 / 性能 / 汇率整体读写，保证首屏渲染的数据集互相一致。
+ * key 带结构版本号，字段调整时升级版本即可让旧缓存自然失效。
+ */
+const CLIENT_CACHE_KEY = "client-bundle-v1";
+
+export interface ClientCacheBundle {
+  /** 最近一次成功取数的结果（不含 error 字段） */
+  pricing: Omit<PricingResult, "error">;
+  performance: PerformancePayload | null;
+  fx: FxRates | null;
+}
+
+function isUsableBundle(value: unknown): value is ClientCacheBundle {
+  if (value == null || typeof value !== "object") return false;
+  const { pricing } = value as { pricing?: Partial<PricingResult> };
+  return (
+    pricing != null &&
+    typeof pricing === "object" &&
+    typeof pricing.fetchedAt === "number" &&
+    typeof pricing.source === "string" &&
+    Array.isArray(pricing.catalog?.models) &&
+    Array.isArray(pricing.catalog?.providers)
+  );
+}
+
+/**
+ * 读取本地首屏缓存（打开页面时优先渲染用）。
+ * 未写入过 / 结构不符 / IndexedDB 不可用时返回 null，由调用方回退到网络直取。
+ */
+export async function readClientCache(): Promise<ClientCacheBundle | null> {
+  const envelope = await readCache<unknown>(CLIENT_CACHE_KEY);
+  if (!envelope) return null;
+  if (!isUsableBundle(envelope.data)) {
+    // 旧版本残留 / 写入中断导致的无效数据：清理后按无缓存处理
+    void removeCache(CLIENT_CACHE_KEY);
+    return null;
+  }
+  return envelope.data;
+}
+
+/** 取数成功后刷新本地缓存（价格 / 性能 / 汇率整体写入）；失败静默降级 */
+export async function writeClientCache(
+  result: PricingResult,
+  performance: PerformancePayload | null,
+  fx: FxRates | null,
+): Promise<void> {
+  await writeCache<ClientCacheBundle>(CLIENT_CACHE_KEY, {
+    pricing: {
+      catalog: result.catalog,
+      fetchedAt: result.fetchedAt,
+      source: result.source,
+      stale: result.stale,
+      serverCacheHit: result.serverCacheHit,
+    },
+    performance,
+    fx,
+  });
 }

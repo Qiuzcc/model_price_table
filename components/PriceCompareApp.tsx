@@ -8,6 +8,8 @@ import {
   getFxData,
   getPerformanceData,
   getPricingData,
+  readClientCache,
+  writeClientCache,
   type DataSource,
   type PricingResult,
 } from "@/lib/api";
@@ -41,17 +43,37 @@ import type {
 
 type Status = "loading" | "ready" | "error";
 
+/** 首屏缓存渲染后的后台同步状态 */
+type BackgroundSync = "idle" | "syncing" | "failed";
+
 interface DataMeta {
   fetchedAt: number;
   source: DataSource;
   stale: boolean;
   serverCacheHit: boolean;
+  /** 当前展示的是客户端本地缓存（打开页面时的首屏渲染） */
+  fromLocalCache: boolean;
+}
+
+function toMeta(result: Omit<PricingResult, "error">, fromLocalCache = false): DataMeta {
+  return {
+    fetchedAt: result.fetchedAt,
+    source: result.source,
+    stale: result.stale,
+    serverCacheHit: result.serverCacheHit,
+    fromLocalCache,
+  };
 }
 
 function describeSource(meta: DataMeta): string {
+  if (meta.fromLocalCache) return "本地缓存";
   switch (meta.source) {
     case "github":
       return "GitHub 兜底数据源";
+    case "modelsdev":
+      return "models.dev 兜底数据源";
+    case "openrouter":
+      return "OpenRouter 兜底数据源";
     case "llmrates":
       return meta.serverCacheHit ? "服务端缓存（6 小时内有效）" : "llmrates.ai 数据源";
     default:
@@ -67,6 +89,7 @@ export default function PriceCompareApp() {
   const [meta, setMeta] = useState<DataMeta | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncState, setSyncState] = useState<BackgroundSync>("idle");
   const [notice, setNotice] = useState<string | null>(null);
   const [capWarning, setCapWarning] = useState<string | null>(null);
 
@@ -77,60 +100,108 @@ export default function PriceCompareApp() {
   const [hydrated, setHydrated] = useState(false);
 
   // 应用一次取数结果：更新数据集 / 元信息 / 过期提示
-  const applyResult = (result: PricingResult) => {
+  const applyResult = (result: PricingResult, options?: { fromLocalCache?: boolean }) => {
     setCatalog(result.catalog);
-    setMeta({
-      fetchedAt: result.fetchedAt,
-      source: result.source,
-      stale: result.stale,
-      serverCacheHit: result.serverCacheHit,
-    });
+    setMeta(toMeta(result, options?.fromLocalCache ?? false));
     setNotice(null);
   };
 
-  // 首次加载：本地缓存（30 分钟）优先，过期则请求服务端
+  // 首次加载：本地缓存优先渲染（stale-while-revalidate），同时请求服务端并后台无感刷新
   useEffect(() => {
     let cancelled = false;
+
+    // 恢复本地偏好（已选模型需按当前数据集校验，其余偏好与数据集无关）
+    const restorePreferences = (catalog: PricingCatalog) => {
+      const sids = new Set(catalog.models.map((model) => model.sid));
+      const storedSids = loadSelectedSids();
+      if (storedSids) {
+        setModelSel(storedSids.filter((sid) => sids.has(sid)));
+      }
+
+      // 恢复列可见性（忽略已失效的列 key）；旧版本列设置一次性补上新增的性能列
+      const storedColumns = loadVisibleColumns();
+      if (storedColumns) {
+        const valid = storedColumns.filter((key) => getColumn(key) !== undefined);
+        const needsMigration = loadVisibleColumnsVersion() < VISIBLE_COLUMNS_VERSION;
+        setVisibleColumns(needsMigration ? Array.from(new Set([...valid, ...PERFORMANCE_COLUMN_KEYS])) : valid);
+      }
+
+      // 恢复价格展示币种偏好
+      const storedCurrency = loadDisplayCurrency();
+      if (storedCurrency) setDisplayCurrency(storedCurrency);
+    };
+
     (async () => {
+      // 缓存读取与网络请求并行：缓存到达后立即渲染首屏，不等待网络
+      const pending = Promise.all([
+        getPricingData(),
+        getPerformanceData(),
+        getFxData(),
+      ]);
+      // 先挂兜底 handler，避免缓存渲染期间网络失败触发「未处理的 rejection」告警
+      pending.catch(() => {
+        // 失败在下方统一处理
+      });
+
+      const cached = await readClientCache();
+      if (cancelled) return;
+      if (cached) {
+        // 缓存可用：立即渲染首屏并标记来源，让 HTML 无需等待网络
+        applyResult(cached.pricing, { fromLocalCache: true });
+        setPerformance(cached.performance);
+        setFx(cached.fx);
+        restorePreferences(cached.pricing.catalog);
+        setStatus("ready");
+        setHydrated(true);
+        setSyncState("syncing");
+      }
+
       try {
-        const [result, perf, fxData] = await Promise.all([
-          getPricingData(),
-          getPerformanceData(),
-          getFxData(),
-        ]);
+        const [result, perf, fxData] = await pending;
         if (cancelled) return;
-        applyResult(result);
-        setPerformance(perf);
-        setFx(fxData);
 
-        // 恢复本地已选模型（剔除数据集中已不存在的 sid）
-        const sids = new Set(result.catalog.models.map((model) => model.sid));
-        const storedSids = loadSelectedSids();
-        if (storedSids) {
-          setModelSel(storedSids.filter((sid) => sids.has(sid)));
+        // 服务端返回与缓存同一份数据（缓存写自它且上游未更新）时跳过大数据集的重渲染
+        const pricingUnchanged =
+          cached != null &&
+          result.source === cached.pricing.source &&
+          result.fetchedAt === cached.pricing.fetchedAt;
+        if (pricingUnchanged) {
+          setMeta(toMeta(result));
+        } else {
+          applyResult(result);
+        }
+        if (!cached || cached.performance?.generatedAt !== perf?.generatedAt) {
+          setPerformance(perf);
+        }
+        if (!cached || cached.fx?.fetchedAt !== fxData?.fetchedAt) {
+          setFx(fxData);
         }
 
-        // 恢复列可见性（忽略已失效的列 key）；旧版本列设置一次性补上新增的性能列
-        const storedColumns = loadVisibleColumns();
-        if (storedColumns) {
-          const valid = storedColumns.filter((key) => getColumn(key) !== undefined);
-          const needsMigration = loadVisibleColumnsVersion() < VISIBLE_COLUMNS_VERSION;
-          setVisibleColumns(needsMigration ? Array.from(new Set([...valid, ...PERFORMANCE_COLUMN_KEYS])) : valid);
+        if (cached) {
+          // 已用缓存恢复过偏好：只校正在新数据集中已不存在的已选模型
+          const sids = new Set(result.catalog.models.map((model) => model.sid));
+          setModelSel((prev) => prev.filter((sid) => sids.has(sid)));
+        } else {
+          restorePreferences(result.catalog);
         }
-
-        // 恢复价格展示币种偏好
-        const storedCurrency = loadDisplayCurrency();
-        if (storedCurrency) setDisplayCurrency(storedCurrency);
 
         setStatus("ready");
+        setSyncState("idle");
+        void writeClientCache(result, perf, fxData);
       } catch (error) {
         if (cancelled) return;
-        setErrorMessage(error instanceof Error ? error.message : "数据加载失败");
-        setStatus("error");
+        if (cached) {
+          // 有缓存兜底：保留首屏渲染，仅标记后台同步失败
+          setSyncState("failed");
+        } else {
+          setErrorMessage(error instanceof Error ? error.message : "数据加载失败");
+          setStatus("error");
+        }
       } finally {
         if (!cancelled) setHydrated(true);
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -164,8 +235,10 @@ export default function PriceCompareApp() {
       applyResult(result);
       setPerformance(perf);
       setFx(fxData);
+      setSyncState("idle");
       const sids = new Set(result.catalog.models.map((model) => model.sid));
       setModelSel((prev) => prev.filter((sid) => sids.has(sid)));
+      void writeClientCache(result, perf, fxData);
       if (!result.stale) {
         const perfUsable = perf != null && Object.keys(perf.metrics).length > 0;
         setNotice(perfUsable ? "数据已刷新" : "价格数据已刷新；性能指标暂不可用");
@@ -246,7 +319,7 @@ export default function PriceCompareApp() {
             模型价格对比
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-            对比各模型供应商的 API 价格与规格，数据每 30 分钟自动缓存一次
+            对比各模型供应商的 API 价格与规格；打开页面优先展示本地缓存，并自动同步最新数据
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -256,6 +329,8 @@ export default function PriceCompareApp() {
                 {describeSource(meta)}
               </div>
               <div>数据更新于 {formatDateTime(meta.fetchedAt)}</div>
+              {syncState === "syncing" ? <div className="text-blue-600">正在同步最新数据…</div> : null}
+              {syncState === "failed" ? <div className="text-amber-600">最新数据同步失败，展示本地缓存</div> : null}
               {performance && performance.matchedCount > 0 ? (
                 <div>
                   性能指标已匹配 {performance.matchedCount}/{performance.totalModels} 个模型
@@ -266,7 +341,7 @@ export default function PriceCompareApp() {
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={refreshing || status === "loading"}
+            disabled={refreshing || status === "loading" || syncState === "syncing"}
             className="flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             <svg
