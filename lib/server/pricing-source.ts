@@ -11,7 +11,8 @@ import { PRICING_SOURCES } from "./sources/registry";
  * - 数据集体积较大（数 MB），超过 Next.js FetchCache 单条 2MB 上限，
  *   因此使用磁盘缓存（6 小时 TTL，写入 .cache/pricing-catalog.json），全站共享，
  *   文件在进程内保留镜像，每个进程仅实际读取一次；
- * - 未过期直接使用，过期或强制刷新时才请求上游；上游全部失败时降级返回过期缓存（stale）。
+ * - 未过期直接使用，过期或强制刷新时才请求上游；上游全部失败时降级返回过期缓存（stale）；
+ * - sourceId 指定时跳过缓存与优先级，直接用指定源实时拉取（容灾演练 / 排查用，不写缓存）。
  */
 
 /** 磁盘缓存 TTL：6 小时 */
@@ -121,7 +122,23 @@ async function persistToDisk(snapshot: CachedSnapshot): Promise<void> {
 
 export async function getPricingSnapshot(
   force: boolean,
+  sourceId?: string,
 ): Promise<PricingSnapshot> {
+  // 指定数据源：容灾演练 / 排查用，每次实时拉取且不读写磁盘缓存
+  if (sourceId) {
+    const source = PRICING_SOURCES.find((item) => item.id === sourceId);
+    if (!source) throw new Error(`未知数据源：${sourceId}`);
+
+    const catalog = await source.fetchCatalog();
+    return {
+      catalog,
+      fetchedAt: Date.now(),
+      source: source.id,
+      fromDiskCache: false,
+      stale: false,
+    };
+  }
+
   const now = Date.now();
 
   if (!force) {

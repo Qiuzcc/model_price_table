@@ -53,7 +53,16 @@ ARTIFICIAL_ANALYSIS_API_KEY=aa_你的key
 
 ## 缓存策略
 
-价格数据在服务端经由数据源适配器转换为与数据源无关的领域模型（`lib/domain/types.ts`），再做磁盘缓存（6 小时 TTL，`.cache/pricing-catalog.json`，已加入 .gitignore），文件在进程内保留镜像、每个进程仅实际读取一次。未过期直接返回缓存，过期后向上游刷新；上游全部失败时降级返回过期数据。页面「刷新数据」按钮（`?force=1`）可强制绕过缓存重新拉取。
+价格数据在服务端经由数据源适配器转换为与数据源无关的领域模型（`lib/domain/types.ts`），再做磁盘缓存（6 小时 TTL，`.cache/pricing-catalog.json`，已加入 .gitignore），文件在进程内保留镜像、每个进程仅实际读取一次。未过期直接返回缓存，过期后向上游刷新；上游全部失败时降级返回过期数据。
+
+数据源容灾链（`lib/server/sources/registry.ts`，按优先级逐个尝试）：
+
+1. LLMRates.ai 动态 API（主源，原生币种、字段最全）
+2. LLMRates GitHub 镜像（同一数据集，防单一端点故障）
+3. [models.dev](https://models.dev)（独立第三方源，provider × model 结构与领域模型最接近）
+4. [OpenRouter](https://openrouter.ai)（独立第三方源，公开 models API）
+
+页面「刷新数据」按钮（`?force=1`）可强制绕过缓存重新拉取；`?source=<id>` 可强制使用指定数据源（容灾演练 / 排查用，不写缓存），如 `/api/pricing?source=modelsdev`。
 
 ## 项目结构
 
@@ -80,8 +89,11 @@ model_price_table_deepseek_2/
 │   ├── server/
 │   │   ├── sources/
 │   │   │   ├── types.ts            # 数据源适配器契约
+│   │   │   ├── shared.ts           # 适配器共享解析工具
 │   │   │   ├── llmrates.ts         # LLMRates.ai 适配器（API 主源 + GitHub 镜像）
-│   │   │   └── registry.ts         # 数据源注册表（按优先级）
+│   │   │   ├── models-dev.ts       # models.dev 适配器（独立备源）
+│   │   │   ├── openrouter.ts       # OpenRouter 适配器（独立备源）
+│   │   │   └── registry.ts         # 数据源注册表（容灾优先级）
 │   │   ├── pricing-source.ts       # 价格数据编排：多源回退 + 磁盘缓存
 │   │   ├── performance-source.ts   # 性能数据源：AA API + 匹配 + 内存缓存
 │   │   ├── fx-source.ts            # 汇率数据源：ECB + 兜底 + 内存缓存

@@ -5,6 +5,7 @@ import type {
   Provider,
   PricingCatalog,
 } from "@/lib/domain/types";
+import { isRecord, toNumber, toText } from "./shared";
 import type { PricingSource } from "./types";
 
 /**
@@ -59,18 +60,6 @@ function createLlmratesSource({
       return catalog;
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
-function toText(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function toNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** 把上游数据集映射为领域模型；providers / models 均为非空数组才视为有效 */
