@@ -235,6 +235,8 @@ export default function PriceCompareApp() {
       applyResult(result);
       setPerformance(perf);
       setFx(fxData);
+      // 重试（错误页）成功后需退出错误态
+      setStatus("ready");
       setSyncState("idle");
       const sids = new Set(result.catalog.models.map((model) => model.sid));
       setModelSel((prev) => prev.filter((sid) => sids.has(sid)));

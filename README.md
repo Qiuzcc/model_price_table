@@ -45,12 +45,14 @@ pnpm dev
 
 常用脚本：
 
-| 命令         | 说明                   |
-| ------------ | ---------------------- |
-| `pnpm dev`   | 启动开发服务器         |
-| `pnpm build` | 生产构建（含类型检查） |
-| `pnpm start` | 启动生产服务器         |
-| `pnpm lint`  | 运行 ESLint 检查       |
+| 命令            | 说明                        |
+| --------------- | --------------------------- |
+| `pnpm dev`      | 启动开发服务器              |
+| `pnpm build`    | 生产构建（含类型检查）      |
+| `pnpm start`    | 启动生产服务器              |
+| `pnpm lint`     | 运行 ESLint 检查            |
+| `pnpm test`     | 运行单元测试（Vitest）      |
+| `pnpm test:e2e` | 运行 E2E 测试（Playwright） |
 
 ### 环境变量（可选）
 
@@ -69,6 +71,24 @@ ARTIFICIAL_ANALYSIS_API_KEY=aa_你的key
 - Key 仅服务端使用（AA 条款要求），不会出现在浏览器请求中
 - 修改环境变量后需**重启 dev server** 才会生效
 - Next.js 环境变量文件优先级为 `.env.local` > `.env`，且**空值同样会覆盖**低优先级文件——同名变量务必只保留一处定义
+
+## 测试
+
+**单元测试**（Vitest + React Testing Library）覆盖 `lib/` 纯逻辑（价格换算与格式化、AA 性能匹配、汇率数据源、偏好持久化、客户端缓存）与关键组件交互：
+
+```bash
+pnpm test        # 一次性运行
+pnpm test:watch  # 监听模式
+```
+
+**E2E 测试**（Playwright）以生产构建启动，`/api/*` 请求全部 mock 固定数据，覆盖加载与重试、筛选与对比、表头排序、币种折算、列设置与偏好持久化等核心流程：
+
+```bash
+pnpm test:e2e     # 自动构建并启动服务后运行
+pnpm test:e2e:ui  # UI 模式
+```
+
+首次运行 E2E 前需安装浏览器：`pnpm exec playwright install chromium`。
 
 ## 缓存策略
 
@@ -141,5 +161,8 @@ model_price_table_deepseek_2/
 │   ├── cache.ts                    # IndexedDB 大体积数据缓存封装（首屏缓存）
 │   ├── metrics.ts                  # 列定义、格式化、币种换算
 │   └── store.ts                    # localStorage 偏好持久化
+├── e2e/                            # Playwright E2E 测试（/api/* 全部 mock）
+├── vitest.config.mts               # 单元测试配置
+├── playwright.config.ts            # E2E 配置
 └── ...
 ```
